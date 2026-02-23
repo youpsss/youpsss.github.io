@@ -310,7 +310,7 @@
         .ru-info {
             position:absolute; bottom:10px; left:10px; z-index:15;
             background:rgba(9,9,9,0.92); border:1px solid var(--border2);
-            padding:12px 16px; font-size:10px; min-width:220px;
+            padding:12px 16px; font-size:10px; min-width:240px; max-width:300px;
             display:none; backdrop-filter:blur(4px);
         }
         html.light .ru-info { background:rgba(245,245,245,0.95); }
@@ -1119,147 +1119,151 @@
     }
 
     function renderRussia(g, W, H, C, svg, container, tip) {
-        // Robustly get the right object key (could be 'countries', 'land', etc.)
         const objKey = Object.keys(worldGeoData.objects)[0];
         const countries = topojson.feature(worldGeoData, worldGeoData.objects[objKey]);
-        // ID может быть числом или строкой в зависимости от версии
-        const russia = countries.features.find(f => f.id === 643 || f.id === '643' || +f.id === 643);
+        const russia = countries.features.find(f => +f.id === 643);
+
         if (!russia) {
-            // Debug: show available object keys and sample IDs
-            const keys = Object.keys(worldGeoData.objects);
-            const sampleIds = countries.features.slice(0,10).map(f=>f.id).join(', ');
-            svg.append('text').attr('x', W/2).attr('y', H/2 - 16).attr('text-anchor','middle')
-                .attr('fill', C.land).attr('font-size', 10).attr('font-family',"'IBM Plex Mono',monospace")
-                .text(`Объекты: ${keys.join(', ')}`);
-            svg.append('text').attr('x', W/2).attr('y', H/2 + 4).attr('text-anchor','middle')
-                .attr('fill', C.land).attr('font-size', 10).attr('font-family',"'IBM Plex Mono',monospace")
-                .text(`Примеры ID: ${sampleIds}`);
+            const sampleIds = countries.features.slice(0,8).map(f=>f.id).join(', ');
+            svg.append('text').attr('x',W/2).attr('y',H/2-10).attr('text-anchor','middle')
+                .attr('fill',C.land).attr('font-size',10).attr('font-family',"'IBM Plex Mono',monospace")
+                .text('Объекты: ' + Object.keys(worldGeoData.objects).join(', '));
+            svg.append('text').attr('x',W/2).attr('y',H/2+10).attr('text-anchor','middle')
+                .attr('fill',C.land).attr('font-size',10).attr('font-family',"'IBM Plex Mono',monospace")
+                .text('ID примеры: ' + sampleIds);
             return;
         }
 
-        // Mercator fits Russia well; use fitExtent before geoPath
-        const proj = d3.geoMercator()
-            .fitExtent([[16, 16], [W - 16, H - 16]], russia);
+        // --- Ключевое исправление: rotate чтобы Россия не разрывалась по антимеридиану ---
+        // geoEquirectangular + rotate сдвигает разрыв карты на -180+90=-90° долготы,
+        // что убирает его из видимой части России (Чукотка перестаёт обрезаться)
+        const proj = d3.geoEquirectangular()
+            .rotate([-90, 0])
+            .fitExtent([[8, 8], [W - 8, H - 8]], russia);
         const path = d3.geoPath().projection(proj);
 
-        // Dim neighboring countries first
-        g.selectAll('.neighbor').data(countries.features.filter(f => f.id !== 643)).enter()
-            .append('path').attr('class','neighbor').attr('d', path)
+        // Соседние страны (приглушённо, для контекста)
+        g.selectAll('.nb')
+            .data(countries.features.filter(f => +f.id !== 643))
+            .enter().append('path').attr('class','nb')
+            .attr('d', path)
             .attr('fill', C.land).attr('stroke', C.border)
-            .attr('stroke-width', 0.3).attr('opacity', 0.35);
+            .attr('stroke-width', 0.25).attr('opacity', 0.28);
 
-        // Russia itself — bright
+        // Россия
         g.append('path').datum(russia).attr('d', path)
-            .attr('fill', C.ruLand).attr('stroke', C.border).attr('stroke-width', 0.7);
+            .attr('fill', C.ruLand).attr('stroke', C.border).attr('stroke-width', 0.8);
 
-        // Info panel
+        // Панель информации
         const infoPanel = document.createElement('div');
         infoPanel.id = 'ruInfo';
         infoPanel.className = 'ru-info';
-        infoPanel.innerHTML = '<div class="ru-info-name">Выберите город</div><div style="font-size:9px;color:var(--text2)">Нажмите на точку на карте</div>';
+        infoPanel.innerHTML = '<div class="ru-info-name">Выберите город</div>'
+            + '<div style="font-size:9px;color:var(--text2)">Нажмите на точку</div>';
         container.appendChild(infoPanel);
 
-        // Cities with ISP data
+        // Города: интернет-провайдеры + мобильные операторы
         const RU_CITIES = [
-            { name:'Москва',          lon:37.6,  lat:55.75, isp:'МТС / Билайн',        speed:'500+ Мбит/с', cov:'99%' },
-            { name:'Санкт-Петербург', lon:30.3,  lat:59.95, isp:'Ростелеком / МТС',    speed:'300+ Мбит/с', cov:'98%' },
-            { name:'Новосибирск',     lon:82.9,  lat:54.98, isp:'Ростелеком',           speed:'200 Мбит/с',  cov:'85%' },
-            { name:'Екатеринбург',    lon:60.6,  lat:56.83, isp:'Екатеринбург-2000',    speed:'300 Мбит/с',  cov:'88%' },
-            { name:'Казань',          lon:49.1,  lat:55.78, isp:'Таттелеком',           speed:'200 Мбит/с',  cov:'87%' },
-            { name:'Краснодар',       lon:38.97, lat:45.04, isp:'Ростелеком / ЮТК',    speed:'200 Мбит/с',  cov:'82%' },
-            { name:'Ростов-на-Дону',  lon:39.7,  lat:47.23, isp:'Ростелеком / Дом.ru', speed:'200 Мбит/с',  cov:'84%' },
-            { name:'Нижний Новгород', lon:44.0,  lat:56.33, isp:'МТС / ЭР-Телеком',   speed:'200 Мбит/с',  cov:'86%' },
-            { name:'Самара',          lon:50.15, lat:53.2,  isp:'МТС / ЭР-Телеком',   speed:'200 Мбит/с',  cov:'85%' },
-            { name:'Красноярск',      lon:92.87, lat:56.01, isp:'Ростелеком',           speed:'100 Мбит/с',  cov:'60%' },
-            { name:'Челябинск',       lon:61.4,  lat:55.15, isp:'МТС / Ростелеком',    speed:'200 Мбит/с',  cov:'83%' },
-            { name:'Уфа',             lon:55.97, lat:54.74, isp:'Башинформсвязь',       speed:'150 Мбит/с',  cov:'80%' },
-            { name:'Иркутск',         lon:104.3, lat:52.29, isp:'Ростелеком',           speed:'100 Мбит/с',  cov:'65%' },
-            { name:'Владивосток',     lon:131.9, lat:43.11, isp:'Ростелеком / МТС',    speed:'150 Мбит/с',  cov:'72%' },
-            { name:'Якутск',          lon:129.7, lat:62.03, isp:'Ростелеком',           speed:'50 Мбит/с',   cov:'30%' },
-            { name:'Мурманск',        lon:33.09, lat:68.97, isp:'Ростелеком',           speed:'100 Мбит/с',  cov:'60%' },
-            { name:'Хабаровск',       lon:135.1, lat:48.48, isp:'Ростелеком',           speed:'100 Мбит/с',  cov:'55%' },
-            { name:'Тюмень',          lon:68.97, lat:57.15, isp:'Ростелеком / МТС',    speed:'200 Мбит/с',  cov:'79%' },
-            { name:'Волгоград',       lon:44.5,  lat:48.71, isp:'Ростелеком',           speed:'100 Мбит/с',  cov:'75%' },
-            { name:'Омск',            lon:73.37, lat:54.99, isp:'Ростелеком',           speed:'100 Мбит/с',  cov:'74%' },
-            { name:'Воронеж',         lon:39.2,  lat:51.67, isp:'Ростелеком',           speed:'150 Мбит/с',  cov:'80%' },
-            { name:'Пермь',           lon:56.24, lat:58.01, isp:'МТС / Ростелеком',    speed:'150 Мбит/с',  cov:'82%' },
-            { name:'Архангельск',     lon:40.54, lat:64.54, isp:'Ростелеком',           speed:'80 Мбит/с',   cov:'55%' },
-            { name:'Саратов',         lon:46.03, lat:51.53, isp:'Ростелеком',           speed:'100 Мбит/с',  cov:'76%' },
+            { name:'Москва',          lon:37.6,   lat:55.75, isp:'МТС / Билайн',        mob:'МТС, Билайн, МегаФон, Теле2', speed:'500+ Мбит/с', cov:'99%' },
+            { name:'Санкт-Петербург', lon:30.3,   lat:59.95, isp:'Ростелеком / МТС',    mob:'МТС, МегаФон, Билайн, Теле2', speed:'300+ Мбит/с', cov:'98%' },
+            { name:'Новосибирск',     lon:82.9,   lat:54.98, isp:'Ростелеком / Дом.ru', mob:'МТС, Билайн, МегаФон, Теле2', speed:'200 Мбит/с',  cov:'85%' },
+            { name:'Екатеринбург',    lon:60.6,   lat:56.83, isp:'Екатеринбург-2000',   mob:'МТС, Теле2, МегаФон, Билайн', speed:'300 Мбит/с',  cov:'88%' },
+            { name:'Казань',          lon:49.1,   lat:55.78, isp:'Таттелеком',           mob:'МТС, МегаФон, Теле2, Билайн', speed:'200 Мбит/с',  cov:'87%' },
+            { name:'Краснодар',       lon:38.97,  lat:45.04, isp:'Ростелеком / ЮТК',   mob:'МТС, МегаФон, Теле2, Билайн', speed:'200 Мбит/с',  cov:'82%' },
+            { name:'Ростов-на-Дону',  lon:39.7,   lat:47.23, isp:'Ростелеком / Дом.ru', mob:'МТС, МегаФон, Билайн, Теле2', speed:'200 Мбит/с',  cov:'84%' },
+            { name:'Нижний Новгород', lon:44.0,   lat:56.33, isp:'МТС / ЭР-Телеком',   mob:'МТС, МегаФон, Теле2, Билайн', speed:'200 Мбит/с',  cov:'86%' },
+            { name:'Самара',          lon:50.15,  lat:53.2,  isp:'МТС / ЭР-Телеком',   mob:'МТС, МегаФон, Теле2, Билайн', speed:'200 Мбит/с',  cov:'85%' },
+            { name:'Красноярск',      lon:92.87,  lat:56.01, isp:'Ростелеком',           mob:'МТС, Теле2, МегаФон, Билайн', speed:'100 Мбит/с',  cov:'60%' },
+            { name:'Кемерово',        lon:86.09,  lat:55.35, isp:'Ростелеком / Дом.ru', mob:'МТС, Теле2, МегаФон, Билайн', speed:'150 Мбит/с',  cov:'81%' },
+            { name:'Челябинск',       lon:61.4,   lat:55.15, isp:'МТС / Ростелеком',   mob:'МТС, Теле2, МегаФон, Билайн', speed:'200 Мбит/с',  cov:'83%' },
+            { name:'Уфа',             lon:55.97,  lat:54.74, isp:'Башинформсвязь',       mob:'МТС, Билайн, МегаФон, Теле2', speed:'150 Мбит/с',  cov:'80%' },
+            { name:'Иркутск',         lon:104.3,  lat:52.29, isp:'Ростелеком',           mob:'МТС, МегаФон, Теле2, Билайн', speed:'100 Мбит/с',  cov:'65%' },
+            { name:'Владивосток',     lon:131.9,  lat:43.11, isp:'Ростелеком / МТС',   mob:'МТС, МегаФон, Теле2, Билайн', speed:'150 Мбит/с',  cov:'72%' },
+            { name:'Якутск',          lon:129.7,  lat:62.03, isp:'Ростелеком',           mob:'МТС, МегаФон (слабо)',        speed:'50 Мбит/с',   cov:'30%' },
+            { name:'Мурманск',        lon:33.09,  lat:68.97, isp:'Ростелеком',           mob:'МТС, МегаФон, Теле2',         speed:'100 Мбит/с',  cov:'60%' },
+            { name:'Хабаровск',       lon:135.1,  lat:48.48, isp:'Ростелеком',           mob:'МТС, МегаФон, Теле2',         speed:'100 Мбит/с',  cov:'55%' },
+            { name:'Тюмень',          lon:68.97,  lat:57.15, isp:'Ростелеком / МТС',   mob:'МТС, Теле2, МегаФон, Билайн', speed:'200 Мбит/с',  cov:'79%' },
+            { name:'Волгоград',       lon:44.5,   lat:48.71, isp:'Ростелеком',           mob:'МТС, МегаФон, Теле2, Билайн', speed:'100 Мбит/с',  cov:'75%' },
+            { name:'Омск',            lon:73.37,  lat:54.99, isp:'Ростелеком',           mob:'МТС, Теле2, МегаФон',         speed:'100 Мбит/с',  cov:'74%' },
+            { name:'Воронеж',         lon:39.2,   lat:51.67, isp:'Ростелеком',           mob:'МТС, МегаФон, Теле2, Билайн', speed:'150 Мбит/с',  cov:'80%' },
+            { name:'Пермь',           lon:56.24,  lat:58.01, isp:'МТС / Ростелеком',   mob:'МТС, МегаФон, Теле2, Билайн', speed:'150 Мбит/с',  cov:'82%' },
+            { name:'Архангельск',     lon:40.54,  lat:64.54, isp:'Ростелеком',           mob:'МТС, МегаФон, Теле2',         speed:'80 Мбит/с',   cov:'55%' },
+            { name:'Саратов',         lon:46.03,  lat:51.53, isp:'Ростелеком',           mob:'МТС, МегаФон, Теле2, Билайн', speed:'100 Мбит/с',  cov:'76%' },
         ];
 
         RU_CITIES.forEach(city => {
             const pt = proj([city.lon, city.lat]);
-            if (!pt || pt[0] < 0 || pt[1] < 0 || pt[0] > W || pt[1] > H) return;
+            if (!pt) return;
             const [px, py] = pt;
+            if (px < -60 || py < -60 || px > W+60 || py > H+60) return;
 
             const covNum = parseInt(city.cov);
-            const dotCol = covNum >= 90 ? C.dot : covNum >= 70 ? '#888' : C.dotLow;
+            const dotCol = covNum >= 90 ? C.dot : covNum >= 70 ? '#999' : C.dotLow;
             const isBig  = city.name === 'Москва' || city.name === 'Санкт-Петербург';
             const dotR   = isBig ? 5 : 3.5;
 
-            const cg = g.append('g').style('cursor','pointer');
+            const cg = g.append('g').attr('class','city-g').style('cursor','pointer');
 
-            // Pulse for major cities
             if (isBig) {
                 const rip = cg.append('circle').attr('class','spot-ripple')
-                    .attr('cx',px).attr('cy',py).attr('r', dotR)
-                    .attr('fill', C.dot).attr('opacity', 0).attr('pointer-events','none');
-                (function anim() {
-                    rip.attr('r', dotR).attr('opacity', 0.35)
+                    .attr('cx',px).attr('cy',py).attr('r',dotR)
+                    .attr('fill',C.dot).attr('opacity',0).attr('pointer-events','none');
+                (function anim(){
+                    rip.attr('r',dotR).attr('opacity',0.35)
                         .transition().duration(2400).ease(d3.easeLinear)
-                        .attr('r', dotR * 4).attr('opacity', 0).on('end', anim);
+                        .attr('r',dotR*4).attr('opacity',0).on('end',anim);
                 })();
             }
 
-            cg.append('circle').attr('class','spot-dot').attr('data-r', dotR)
-                .attr('cx',px).attr('cy',py).attr('r', dotR)
-                .attr('fill', dotCol).attr('opacity', 0.95)
+            cg.append('circle').attr('class','spot-dot').attr('data-r',dotR)
+                .attr('cx',px).attr('cy',py).attr('r',dotR)
+                .attr('fill',dotCol).attr('opacity',0.95)
                 .attr('pointer-events','none');
 
-            // Label — only show if big city or space permits
+            // Подпись — сохраняем координаты для масштабирования
             cg.append('text').attr('class','region-label')
-                .attr('x', px + dotR + 3).attr('y', py + 4)
+                .attr('data-bx', px + dotR + 2)
+                .attr('data-by', py + 4)
+                .attr('x', px + dotR + 2).attr('y', py + 4)
                 .attr('fill', C.text).attr('font-size','8px')
                 .attr('font-family',"'IBM Plex Mono',monospace")
                 .attr('pointer-events','none')
                 .text(city.name);
 
-            // Click + hover hit zone
-            cg.append('circle').attr('cx',px).attr('cy',py).attr('r', 16)
+            cg.append('circle').attr('cx',px).attr('cy',py).attr('r',16)
                 .attr('fill','transparent')
                 .on('click', () => {
                     infoPanel.classList.add('show');
-                    infoPanel.innerHTML = `
-                        <div class="ru-info-name">${city.name}</div>
-                        <div class="ru-info-row"><span class="ru-info-key">Лучший провайдер</span><span class="ru-info-val">${city.isp}</span></div>
-                        <div class="ru-info-row"><span class="ru-info-key">Макс. скорость</span><span class="ru-info-val">${city.speed}</span></div>
-                        <div class="ru-info-row"><span class="ru-info-key">Покрытие</span><span class="ru-info-val">${city.cov}</span></div>`;
+                    infoPanel.innerHTML =
+                        '<div class="ru-info-name">' + city.name + '</div>' +
+                        '<div class="ru-info-row"><span class="ru-info-key">Интернет</span><span class="ru-info-val">' + city.isp + '</span></div>' +
+                        '<div class="ru-info-row"><span class="ru-info-key">Мобильные</span><span class="ru-info-val" style="font-size:8px">' + city.mob + '</span></div>' +
+                        '<div class="ru-info-row"><span class="ru-info-key">Макс. скорость</span><span class="ru-info-val">' + city.speed + '</span></div>' +
+                        '<div class="ru-info-row"><span class="ru-info-key">Покрытие</span><span class="ru-info-val">' + city.cov + '</span></div>';
                 })
-                .on('mousemove', function(event) {
-                    const [mx, my] = d3.pointer(event, container);
-                    tip.style.left  = (mx + 12) + 'px';
-                    tip.style.top   = (my - 38) + 'px';
-                    tip.innerHTML   = `<b>${city.name}</b><br>${city.isp} · ${city.speed}`;
-                    tip.style.opacity = '1';
+                .on('mousemove', function(event){
+                    const [mx,my] = d3.pointer(event, container);
+                    tip.style.left = (mx+14)+'px';
+                    tip.style.top  = (my-44)+'px';
+                    tip.innerHTML  = '<b>' + city.name + '</b><br>' + city.isp + '<br><span style="opacity:.65">' + city.mob + '</span>';
+                    tip.style.opacity='1';
                 })
-                .on('mouseleave', () => { tip.style.opacity = '0'; });
+                .on('mouseleave', () => { tip.style.opacity='0'; });
         });
 
-        // Legend (drawn on svg, not clipped g)
-        const legX = W - 134, legY = 10;
-        const leg = svg.append('g').attr('transform', `translate(${legX},${legY})`);
-        leg.append('rect').attr('width',122).attr('height',68)
-            .attr('fill', isLight ? 'rgba(245,245,245,0.92)' : 'rgba(9,9,9,0.88)')
-            .attr('stroke', C.border).attr('stroke-width', 0.6);
-        [
-            [C.dot,    '≥90% покрытие'],
-            ['#888',   '70–89%'],
-            [C.dotLow, '<70%'],
-        ].forEach(([col, label], i) => {
-            leg.append('circle').attr('cx',14).attr('cy',16+i*18).attr('r',4).attr('fill',col);
-            leg.append('text').attr('x',24).attr('y',20+i*18)
+        // Масштабирование шрифта обрабатывается в zoomBehavior (drawMap)
+
+        // Легенда
+        const legX = W - 138, legY = 10;
+        const leg = svg.append('g').attr('transform','translate('+legX+','+legY+')');
+        leg.append('rect').attr('width',126).attr('height',68)
+            .attr('fill', isLight ? 'rgba(245,245,245,0.93)' : 'rgba(9,9,9,0.90)')
+            .attr('stroke',C.border).attr('stroke-width',0.6);
+        [[C.dot,'≥90% покрытие'],['#999','70–89%'],[C.dotLow,'<70%']].forEach(function(item,i){
+            leg.append('circle').attr('cx',13).attr('cy',15+i*18).attr('r',4).attr('fill',item[0]);
+            leg.append('text').attr('x',23).attr('y',19+i*18)
                 .attr('fill',C.text).attr('font-size','8px')
-                .attr('font-family',"'IBM Plex Mono',monospace").text(label);
+                .attr('font-family',"'IBM Plex Mono',monospace").text(item[1]);
         });
     }
 
@@ -1319,7 +1323,16 @@
                     d3.select(this).attr('r', +d3.select(this).attr('data-r') / Math.sqrt(k));
                 });
                 g.selectAll('.spot-hit').attr('r', 14 / Math.sqrt(k));
-                g.selectAll('.region-label').style('font-size', Math.max(7, 9 / k) + 'px');
+                // Адаптивный шрифт: уменьшается обратно пропорционально зуму
+                // При k=1→8px, k=2→6px, k=4→4px, k=8→3px (min 3px)
+                const fs = Math.max(3, Math.round(8 / Math.sqrt(k)));
+                g.selectAll('.region-label')
+                    .attr('font-size', fs + 'px')
+                    .each(function() {
+                        const bx = +d3.select(this).attr('data-bx');
+                        const by = +d3.select(this).attr('data-by');
+                        if (bx) d3.select(this).attr('x', bx).attr('y', by);
+                    });
             });
         svg.call(zoomBehavior).on('dblclick.zoom', null);
 
